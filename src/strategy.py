@@ -85,27 +85,24 @@ def detect_pullback(df: pd.DataFrame, cfg: dict, bias: str) -> Optional[Setup]:
         # volume down (last vol < vol_ma)
         if not (last['volume'] < last['vol_ma']):
             return None
-        # candle close green and in upper half
+        # candle close green (rejection candle is bullish)
         if not (body > 0):
             return None
-        upper_half = last['open'] + 0.5 * candle_range
-        if not (last['close'] >= upper_half):
+        # body in upper half (real rejection has body in upper half; not strict close position)
+        body_mid = (last['open'] + last['close']) / 2.0
+        if not (body_mid >= last['low'] + 0.5 * candle_range):
             return None
         # lower wick >= 40% of range
         wick = min(last['open'], last['close']) - last['low']
         if (wick / candle_range) < cfg['pullback_wick_min_pct']:
             return None
-        # previous candle also green (confirmation)
-        if not (prev['close'] > prev['open']):
-            return None
-        entry = last['close'] + cfg['pullback_atr_above_vwap'] * atr * 0.0 + 0.0  # market on next candle
-        # actually we use limit at close of last candle
+        # entry: limit at close of last candle
         entry = last['close']
         sl = vwap - cfg['pullback_sl_atr_below_vwap'] * atr
         if sl >= entry:
             return None
         return Setup(SIDE_LONG, "pullback", entry, sl,
-                     f"pullback long | bars={bars} wick%={wick/candle_range:.2f}")
+                     f"pullback long | wick%={wick/candle_range:.2f}")
 
     # Short pullback
     if bias == SIDE_SHORT:
@@ -115,20 +112,18 @@ def detect_pullback(df: pd.DataFrame, cfg: dict, bias: str) -> Optional[Setup]:
             return None
         if not (body < 0):
             return None
-        lower_half = last['open'] - 0.5 * candle_range
-        if not (last['close'] <= lower_half):
+        body_mid = (last['open'] + last['close']) / 2.0
+        if not (body_mid <= last['high'] - 0.5 * candle_range):
             return None
         wick = last['high'] - max(last['open'], last['close'])
         if (wick / candle_range) < cfg['pullback_wick_short_pct']:
-            return None
-        if not (prev['close'] < prev['open']):
             return None
         entry = last['close']
         sl = vwap + cfg['pullback_sl_atr_below_vwap'] * atr
         if sl <= entry:
             return None
         return Setup(SIDE_SHORT, "pullback", entry, sl,
-                     f"pullback short | bars={bars} wick%={wick/candle_range:.2f}")
+                     f"pullback short | wick%={wick/candle_range:.2f}")
 
     return None
 
