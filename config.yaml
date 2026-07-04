@@ -1,0 +1,58 @@
+symbol: "BTCUSDT"
+margin_coin: "USDT"
+product_type: "USDT-FUTURES"
+timeframe: "5m"
+lookback_bars: 200
+
+leverage: 15
+risk_usd: 1.5
+position_mode: "single"
+margin_mode: "isolated"
+
+strategy:
+  ema_fast: 9
+  ema_slow: 21
+  rsi_period: 14
+  rsi_long_min: 45
+  rsi_long_max: 75
+  rsi_short_min: 25
+  rsi_short_max: 55
+  volume_lookback: 20
+  volume_spike_mult: 1.5
+  pullback_atr_above_vwap: 0.5
+  pullback_sl_atr_below_vwap: 1.0
+  pullback_wick_min_pct: 0.40
+  pullback_wick_short_pct: 0.40
+  pullback_min_bars_above: 6
+  breakout_atr_above_vwap: 0.5
+  breakout_sl_atr: 1.5
+  breakout_min_range_bars: 3
+  breakout_max_range_bars: 6
+  invalidation_vol_mult: 1.0
+  tp1_atr_mult: 1.0
+  tp1_size_pct: 0.40
+  tp2_atr_mult: 2.0
+  trail_atr_mult: 0.5
+  trailing_mode: "ema9_or_atr_half"
+
+scheduler:
+  enabled: true
+  cron: "*/5 * * * *"
+  log_file: "logs/vwap_bot.log"
+
+execution:
+  order_type_entry: "limit"
+  order_type_sl: "market"
+  order_type_tp: "limit"
+  entry_timeout_sec: 300
+  poll_interval_sec: 30
+  dry_run: true
+
+bitget:
+  api_key_env: "BITGET_API_KEY"
+  api_secret_env: "BITGET_API_SECRET"
+  api_passphrase_env: "BITGET_PASSPHRASE"
+  base_url: "https://api.bitget.com"
+
+telegram:
+  enabled: false
