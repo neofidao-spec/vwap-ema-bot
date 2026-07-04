@@ -1,9 +1,9 @@
 """
-bitget_api.py — ccxt wrapper per symbol.
+bitget_api.py — ccxt wrapper per symbol with margin mode aware.
 
-Each BitgetClient encapsulates a single underlying ccxt.bitget instance
-with a target symbol set on it. We use a SHARED ccxt client internally
-so that load_markets() is called once and orders are routed by symbol.
+Bitget terminology:
+  * cross     in our config <-> "crossed"  in Bitget API params
+  * isolated  in our config <-> "isolated" in Bitget API params
 """
 import logging
 import time
@@ -14,9 +14,11 @@ import ccxt
 log = logging.getLogger("vwap-bot.bitget")
 
 
-class SharedBitget:
-    """One ccxt.bitget connection shared across symbols."""
+def _to_ccxt_margin(mode: str) -> str:
+    return "crossed" if mode == "cross" else "isolated"
 
+
+class SharedBitget:
     def __init__(self, api_key: str, api_secret: str, passphrase: str,
                  base_url: str = "https://api.bitget.com"):
         self.exchange = ccxt.bitget({
@@ -37,12 +39,13 @@ class SharedBitget:
 
     def set_leverage(self, symbol: str, leverage: int,
                      margin_coin: str = "USDT",
-                     product_type: str = "USDT-FUTURES"):
+                     product_type: str = "USDT-FUTURES",
+                     margin_mode: str = "cross"):
         try:
             self.exchange.set_leverage(leverage, symbol,
                                        params={"marginCoin": margin_coin,
                                                "productType": product_type,
-                                               "marginMode": "isolated"})
+                                               "marginMode": margin_mode})
             return True
         except Exception as e:
             log.debug(f"set_leverage fallback for {symbol}: {e}")
@@ -50,16 +53,17 @@ class SharedBitget:
 
 
 class BitgetClient:
-    """Per-symbol view over a SharedBitget."""
-
     def __init__(self, shared: SharedBitget, symbol: str,
                  leverage: int, margin_coin: str = "USDT",
-                 product_type: str = "USDT-FUTURES"):
+                 product_type: str = "USDT-FUTURES",
+                 margin_mode: str = "cross"):
         self.shared = shared
         self.symbol = symbol
         self.leverage = leverage
         self.margin_coin = margin_coin
         self.product_type = product_type
+        self.margin_mode = margin_mode
+        self._ccxt_margin = _to_ccxt_margin(margin_mode)
 
         self.shared.load_markets()
         self.market_info = self.shared.markets.get(symbol, {})
@@ -69,9 +73,14 @@ class BitgetClient:
         amt = self.market_info.get('limits', {}).get('amount', {})
         self.min_amount = float(amt.get('min') or 0.0)
 
-        self.shared.set_leverage(symbol, leverage, margin_coin, product_type)
+        self.shared.set_leverage(symbol, leverage, margin_coin, product_type,
+                                 margin_mode=self._ccxt_margin)
 
-    # convenience pass-throughs
+    def _common_params(self) -> Dict[str, Any]:
+        return {"marginCoin": self.margin_coin,
+                "productType": self.product_type,
+                "marginMode": self._ccxt_margin}
+
     def _ex(self):
         return self.shared.exchange
 
@@ -113,25 +122,19 @@ class BitgetClient:
 
     def place_entry_limit(self, side: str, price: float, size: float,
                           client_id: str = "") -> Dict:
+        params = dict(self._common_params())
+        params.update({"clientOid": client_id or f"vwap_{int(time.time()*1000)}",
+                       "timeInForceValue": "GTC"})
         order = self._ex().create_order(
-            self.symbol, "limit", side, size, price,
-            params={"marginCoin": self.margin_coin,
-                    "productType": self.product_type,
-                    "marginMode": "isolated",
-                    "clientOid": client_id or f"vwap_{int(time.time()*1000)}",
-                    "timeInForceValue": "GTC"})
+            self.symbol, "limit", side, size, price, params=params)
         log.info(f"[{self.symbol}] ENTRY LIMIT {side} {size} @ {price} -> {order.get('id')}")
         return order
 
     def place_sl_tp_plan(self, side_close: str, size: float,
                          sl_price: float, tp_price: float) -> Dict:
-        params = {
-            "marginCoin": self.margin_coin,
-            "productType": self.product_type,
-            "marginMode": "isolated",
-            "stopLoss": {"triggerPrice": sl_price, "holdSide": side_close},
-            "takeProfit": {"triggerPrice": tp_price, "holdSide": side_close},
-        }
+        params = dict(self._common_params())
+        params.update({"stopLoss": {"triggerPrice": sl_price, "holdSide": side_close},
+                       "takeProfit": {"triggerPrice": tp_price, "holdSide": side_close}})
         order = self._ex().create_order(
             self.symbol, "market", side_close, size, None, params=params)
         log.info(f"[{self.symbol}] SL/TP plan: sl={sl_price} tp={tp_price}")
@@ -147,11 +150,9 @@ class BitgetClient:
 
     def close_position_market(self, side_open: str, size: float) -> Dict:
         side_close = "sell" if side_open == "buy" else "buy"
+        params = dict(self._common_params())
+        params["reduceOnly"] = True
         order = self._ex().create_order(
-            self.symbol, "market", side_close, size, None,
-            params={"marginCoin": self.margin_coin,
-                    "productType": self.product_type,
-                    "marginMode": "isolated",
-                    "reduceOnly": True})
+            self.symbol, "market", side_close, size, None, params=params)
         log.info(f"[{self.symbol}] CLOSE market {side_close} {size}")
         return order

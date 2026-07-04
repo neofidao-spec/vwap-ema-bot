@@ -25,8 +25,8 @@ lookback_bars: 200
 # Account-wide rules
 leverage: 15
 risk_usd: 1.5          # per trade, per symbol
-margin_mode: "isolated"
-max_open_positions: 3  # cap global concurrent positions
+margin_mode: "cross"        # cross margin (safer for multi-pair; loses isolated per-position safety)
+max_open_positions: 3       # cap global concurrent positions
 
 # --- Strategy thresholds ---
 strategy:
