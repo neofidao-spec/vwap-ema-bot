@@ -113,6 +113,29 @@ class SymbolState:
         # ensure min notional $5
         qty = max(qty, size_for_min_notional(setup.entry_price,
                                              self.contract_size, self.min_amount, 5.0))
+
+        # --- BALANCE CAP: margin must not exceed available equity ---
+        try:
+            avail = 0
+            if self.client is not None:
+                bal = self.client.fetch_balance()
+                info = bal.get('info', {})
+                if isinstance(info, list) and info:
+                    avail = float(info[0].get('available') or 0)
+            max_notional = avail * self.leverage
+            max_qty = max_notional / setup.entry_price if setup.entry_price > 0 else 0
+            if max_qty < self.min_amount:
+                self.log.info(f"skip: available={avail:.2f} USDT too small "
+                              f"(max_notional={max_notional:.2f})")
+                return
+            if qty > max_qty:
+                old_qty = qty
+                qty = round_qty(max_qty, self.min_amount)
+                self.log.info(f"qty capped {old_qty}->{qty} "
+                              f"(avail={avail:.2f} lev={self.leverage}x)")
+        except Exception as e:
+            self.log.debug(f"balance cap check failed: {e}")
+
         qty = round_qty(qty, self.min_amount)
         ok, qty = validate_size(qty, self.min_amount)
         if not ok or qty <= 0:
