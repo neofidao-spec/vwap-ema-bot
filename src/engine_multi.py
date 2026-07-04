@@ -87,13 +87,14 @@ def make_fake_candles(symbol: str, n=200, base_price: Optional[float] = None):
 class SymbolState:
     """All per-symbol mutable state."""
     def __init__(self, symbol: str, client, cfg_strategy: dict,
-                 risk_usd: float, leverage: int,
+                 risk_usd: float, margin_usd: float, leverage: int,
                  contract_size: float, min_amount: float,
                  price_precision: float):
         self.symbol = symbol
         self.client = client
         self.cfg_strategy = cfg_strategy
         self.risk_usd = risk_usd
+        self.margin_usd = margin_usd
         self.leverage = leverage
         self.contract_size = contract_size
         self.min_amount = min_amount
@@ -106,15 +107,33 @@ class SymbolState:
     # -------------------- entry --------------------
     def send_entry(self, setup: Setup, last):
         atr = last['atr']
-        risk_usd = self.risk_usd
-        raw = position_size(setup.entry_price, setup.sl_price,
-                            risk_usd, contract_size=self.contract_size)
-        qty = max(self.min_amount, round_qty(raw, self.min_amount))
-        # ensure min notional $5
-        qty = max(qty, size_for_min_notional(setup.entry_price,
-                                             self.contract_size, self.min_amount, 5.0))
+        entry = setup.entry_price
+        sl = setup.sl_price
 
-        # --- BALANCE CAP: margin must not exceed available equity ---
+        # --- Dual constraint sizing ---
+        # 1) MARGIN constraint: margin_usd * leverage = max notional
+        margin_limit = getattr(self, 'margin_usd', 1.0)
+        max_notional = margin_limit * self.leverage
+        qty_by_margin = max_notional / entry if entry > 0 else 0
+
+        # 2) SL-LOSS constraint: risk_usd = max dollar loss when SL hit
+        risk_limit = getattr(self, 'risk_usd', 1.0)
+        sl_distance = abs(entry - sl)
+        qty_by_risk = (risk_limit / sl_distance) if sl_distance > 0 else float('inf')
+
+        # 3) Pick the SMALLER of the two — both constraints enforced
+        raw = min(qty_by_margin, qty_by_risk)
+
+        # Round, ensure min notional $5, validate
+        qty = max(self.min_amount, round_qty(raw, self.min_amount))
+        qty = max(qty, size_for_min_notional(entry, self.contract_size, self.min_amount, 5.0))
+        qty = round_qty(qty, self.min_amount)
+        ok, qty = validate_size(qty, self.min_amount)
+        if not ok or qty <= 0:
+            self.log.info(f"qty too small ({qty}), skip")
+            return
+
+        # --- Final safety: balance cap ---
         try:
             avail = 0
             if self.client is not None:
@@ -122,15 +141,15 @@ class SymbolState:
                 info = bal.get('info', {})
                 if isinstance(info, list) and info:
                     avail = float(info[0].get('available') or 0)
-            max_notional = avail * self.leverage
-            max_qty = max_notional / setup.entry_price if setup.entry_price > 0 else 0
-            if max_qty < self.min_amount:
+            max_notional_from_avail = avail * self.leverage
+            max_qty_from_avail = max_notional_from_avail / entry if entry > 0 else 0
+            if max_qty_from_avail < self.min_amount:
                 self.log.info(f"skip: available={avail:.2f} USDT too small "
-                              f"(max_notional={max_notional:.2f})")
+                              f"(max_notional={max_notional_from_avail:.2f})")
                 return
-            if qty > max_qty:
+            if qty > max_qty_from_avail:
                 old_qty = qty
-                qty = round_qty(max_qty, self.min_amount)
+                qty = round_qty(max_qty_from_avail, self.min_amount)
                 self.log.info(f"qty capped {old_qty}->{qty} "
                               f"(avail={avail:.2f} lev={self.leverage}x)")
         except Exception as e:
@@ -143,17 +162,18 @@ class SymbolState:
             return
 
         side_order = side_to_order_side(setup.side)
-        tp1 = setup.entry_price + self.cfg_strategy['tp1_atr_mult'] * atr if setup.side == SIDE_LONG \
-              else setup.entry_price - self.cfg_strategy['tp1_atr_mult'] * atr
-        tp2 = setup.entry_price + self.cfg_strategy['tp2_atr_mult'] * atr if setup.side == SIDE_LONG \
-              else setup.entry_price - self.cfg_strategy['tp2_atr_mult'] * atr
-        entry_px = round_price(setup.entry_price, self.price_precision)
-        sl_px = round_price(setup.sl_price, self.price_precision)
+        tp1 = entry + self.cfg_strategy['tp1_atr_mult'] * atr if setup.side == SIDE_LONG \
+              else entry - self.cfg_strategy['tp1_atr_mult'] * atr
+        tp2 = entry + self.cfg_strategy['tp2_atr_mult'] * atr if setup.side == SIDE_LONG \
+              else entry - self.cfg_strategy['tp2_atr_mult'] * atr
+        entry_px = round_price(entry, self.price_precision)
+        sl_px = round_price(sl, self.price_precision)
         tp1_px = round_price(tp1, self.price_precision)
         tp2_px = round_price(tp2, self.price_precision)
 
-        self.log.info(f"SETUP [{setup.entry_mode}] {setup.side.upper()} qty={qty} "
-                      f"entry={entry_px} sl={sl_px} tp1={tp1_px} tp2={tp2_px}")
+        self.log.info(f"SETUP [{setup.entry_mode}] {setup.side.upper()} "
+                      f"margin=${margin_limit*self.leverage:.0f} risk=${risk_limit:.2f} "
+                      f"qty={qty} entry={entry_px} sl={sl_px} tp1={tp1_px} tp2={tp2_px}")
 
         if self.client is None or not hasattr(self.client, 'place_entry_limit'):
             # dry-run
@@ -303,6 +323,7 @@ class MultiSymbolEngine:
         for sym in symbols:
             sym_overrides = overrides.get(sym, {}) if isinstance(overrides, dict) else {}
             risk_usd = float(sym_overrides.get('risk_usd', self.cfg['risk_usd']))
+            margin_usd = float(sym_overrides.get('margin_usd', self.cfg.get('margin_usd', 1.0)))
             leverage = int(sym_overrides.get('leverage', self.cfg['leverage']))
             if self.dry_run:
                 client = None
@@ -320,7 +341,7 @@ class MultiSymbolEngine:
             self.states[sym] = SymbolState(
                 symbol=sym, client=client,
                 cfg_strategy=self.cfg['strategy'],
-                risk_usd=risk_usd, leverage=leverage,
+                risk_usd=risk_usd, margin_usd=margin_usd, leverage=leverage,
                 contract_size=contract_size, min_amount=min_amount,
                 price_precision=price_prec,
             )

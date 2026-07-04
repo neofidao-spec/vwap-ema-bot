@@ -62,7 +62,8 @@ class TestBalanceCap(unittest.TestCase):
                 "tp1_atr_mult": 1.0, "tp1_size_pct": 0.40, "tp2_atr_mult": 2.0,
                 "trail_atr_mult": 0.5, "trailing_mode": "ema9_or_atr_half",
             },
-            "risk_usd": 1.5, "leverage": 15, "margin_mode": "cross",
+            "risk_usd": 1.0, "margin_usd": 1.0,
+            "leverage": 15, "margin_mode": "cross",
             "max_open_positions": 3,
         }
 

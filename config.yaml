@@ -1,6 +1,6 @@
 # ==========================================================================
 # VWAP + EMA 9/21 Multi-Symbol Bot — Bitget USDT-Futures
-# Risk: $1.5 per trade per symbol, leverage 15x
+# Risk: $1.0 per trade per symbol, leverage 15x, max SL loss $1 per pair
 # Timeframe: 5m
 # ==========================================================================
 
@@ -24,9 +24,10 @@ lookback_bars: 200
 
 # Account-wide rules
 leverage: 15
-risk_usd: 1.5          # per trade, per symbol
-margin_mode: "cross"        # cross margin (safer for multi-pair; loses isolated per-position safety)
-max_open_positions: 3       # cap global concurrent positions
+risk_usd: 1.0          # max SL loss per pair (e.g. qty × SL_distance ≤ $1)
+margin_usd: 1.0        # margin per entry position (notional = margin × leverage)
+margin_mode: "cross"
+max_open_positions: 3
 
 # --- Strategy thresholds ---
 strategy:
@@ -55,10 +56,11 @@ strategy:
   trail_atr_mult: 0.5
   trailing_mode: "ema9_or_atr_half"
 
-# Optional: per-symbol overrides (e.g. smaller risk on SHIB)
+# Optional: per-symbol overrides
 symbol_overrides:
   SHIB/USDT:USDT:
-    risk_usd: 0.5     # SHIB is volatile, cap risk
+    risk_usd: 0.5     # SHIB is volatile, cap max SL loss smaller
+    margin_usd: 0.5
     leverage: 10
   HYPE/USDT:USDT:
     leverage: 10
