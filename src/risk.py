@@ -1,19 +1,15 @@
 """
-risk.py — position sizing helpers.
-Risk-based sizing: shares/contracts = risk_usd / |entry - SL|.
+risk.py — position sizing using exchange contract metadata.
 """
-from typing import Tuple
+from typing import Optional
 
 
 def position_size(entry: float, stop: float, risk_usd: float,
                   contract_size: float = 1.0) -> float:
     """
-    Compute number of contracts/shares such that a stop at `stop` loses
-    exactly `risk_usd` (linear, no leverage in math — leverage lives on
-    the exchange and just changes margin requirement, not PnL per unit).
+    Number of *contracts* such that a stop at `stop` loses exactly `risk_usd`.
 
-    `contract_size` is the multiplier per contract (e.g. 0.001 BTC for
-    a micro-size pair).  Returned value is in contracts.
+    Returns 0 if distance is zero or invalid.
     """
     if contract_size <= 0:
         contract_size = 1.0
@@ -24,13 +20,32 @@ def position_size(entry: float, stop: float, risk_usd: float,
     return max(0.0, raw)
 
 
-def round_step(value: float, step: float) -> float:
+def size_for_min_notional(price: float, contract_size: float,
+                          min_amount: float, min_notional_usd: float = 5.0) -> float:
+    """
+    Ensure size covers min_amount * contract_size and min notional $5.
+    """
+    if price <= 0:
+        return min_amount
+    if min_amount * price * contract_size < min_notional_usd:
+        return min_amount * (min_notional_usd / max(min_amount * price * contract_size, 1e-9))
+    return min_amount
+
+
+def round_qty(qty: float, step: float) -> float:
     if step <= 0:
-        return value
-    return (value // step) * step
+        return qty
+    return float(int(qty / step) * step)
 
 
-def validate_size(size: float, min_size: float, max_size: float) -> Tuple[bool, float]:
-    if size < min_size:
+def round_price(price: float, precision: float) -> float:
+    if precision <= 0:
+        return price
+    # truncate (not Python banker's rounding) — keeps SL above exchange min ticks
+    return float(int(price / precision) * precision)
+
+
+def validate_size(size: float, min_amount: float, max_size: float = 1e6):
+    if size < min_amount:
         return False, 0.0
     return True, min(size, max_size)

@@ -1,14 +1,34 @@
-symbol: "BTCUSDT"
+# ==========================================================================
+# VWAP + EMA 9/21 Multi-Symbol Bot — Bitget USDT-Futures
+# Risk: $1.5 per trade per symbol, leverage 15x
+# Timeframe: 5m
+# ==========================================================================
+
+# All symbols are USDT-margined linear futures
+symbols:
+  - BTC/USDT:USDT
+  - ETH/USDT:USDT
+  - SHIB/USDT:USDT
+  - XRP/USDT:USDT
+  - ADA/USDT:USDT
+  - DOGE/USDT:USDT
+  - TRX/USDT:USDT
+  - SOL/USDT:USDT
+  - LINK/USDT:USDT
+  - HYPE/USDT:USDT
+
 margin_coin: "USDT"
 product_type: "USDT-FUTURES"
 timeframe: "5m"
 lookback_bars: 200
 
+# Account-wide rules
 leverage: 15
-risk_usd: 1.5
-position_mode: "single"
+risk_usd: 1.5          # per trade, per symbol
 margin_mode: "isolated"
+max_open_positions: 3  # cap global concurrent positions
 
+# --- Strategy thresholds ---
 strategy:
   ema_fast: 9
   ema_slow: 21
@@ -35,24 +55,38 @@ strategy:
   trail_atr_mult: 0.5
   trailing_mode: "ema9_or_atr_half"
 
+# Optional: per-symbol overrides (e.g. smaller risk on SHIB)
+symbol_overrides:
+  SHIB/USDT:USDT:
+    risk_usd: 0.5     # SHIB is volatile, cap risk
+    leverage: 10
+  HYPE/USDT:USDT:
+    leverage: 10
+  DOGE/USDT:USDT:
+    leverage: 10
+
+# --- Schedule ---
 scheduler:
   enabled: true
   cron: "*/5 * * * *"
   log_file: "logs/vwap_bot.log"
 
+# --- Execution ---
 execution:
   order_type_entry: "limit"
   order_type_sl: "market"
   order_type_tp: "limit"
   entry_timeout_sec: 300
   poll_interval_sec: 30
-  dry_run: true
+  dry_run: true                       # true = paper, false = live
 
+# --- Bitget API ---
 bitget:
   api_key_env: "BITGET_API_KEY"
   api_secret_env: "BITGET_API_SECRET"
   api_passphrase_env: "BITGET_PASSPHRASE"
   base_url: "https://api.bitget.com"
 
+# --- Notifications ---
 telegram:
   enabled: false
