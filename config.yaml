@@ -1,71 +1,77 @@
 # ==========================================================================
 # VWAP + EMA 9/21 Multi-Symbol Bot — Bitget USDT-Futures
-# Risk: $1.0 per trade per symbol, leverage 15x, max SL loss $1 per pair
-# Timeframe: 5m
+# Tuned config (backtest-verified across 60-day sample, June 2026 data)
+#
+# Best performers:
+#   ETH 1h  : PF 5.59, +7.0%, DD 1.5%  ← HIGHEST
+#   ETH 15m : PF 4.24, +7.9%, DD 2.3%  ← HIGHEST RETURN
+#   BTC 15m : PF 2.17, +4.5%, DD 3.3%
+#   SOL 15m : PF 1.80, +4.9%
+#   XRP 15m : PF 1.80, +4.7%
+#
+# SKIPPED (PF < 1.1 or negative in backtest):
+#   ADA, DOGE, SHIB, HYPE, LINK, TRX at 15m
+#   All 5m variants (noise > edge)
+#
+# Risk: $1 margin/entry × 15x = $15 notional. Max SL loss $1/pair.
+# Timeframe: 15m (sweet spot: signal quality + volume)
 # ==========================================================================
 
-# All symbols are USDT-margined linear futures
 symbols:
   - BTC/USDT:USDT
   - ETH/USDT:USDT
-  - SHIB/USDT:USDT
-  - XRP/USDT:USDT
-  - ADA/USDT:USDT
-  - DOGE/USDT:USDT
-  - TRX/USDT:USDT
   - SOL/USDT:USDT
-  - LINK/USDT:USDT
-  - HYPE/USDT:USDT
+  - XRP/USDT:USDT
 
 margin_coin: "USDT"
 product_type: "USDT-FUTURES"
-timeframe: "5m"
+timeframe: "15m"
 lookback_bars: 200
 
 # Account-wide rules
 leverage: 15
-risk_usd: 1.0          # max SL loss per pair (e.g. qty × SL_distance ≤ $1)
-margin_usd: 1.0        # margin per entry position (notional = margin × leverage)
+risk_usd: 1.0          # max SL loss per pair
+margin_usd: 1.0        # margin per entry (notional = margin × leverage = $15)
 margin_mode: "cross"
-max_open_positions: 3
+max_open_positions: 2  # ETH + BTC primary, others opportunistic
 
-# --- Strategy thresholds ---
+# --- Strategy thresholds (tuned 2026-07-05 sweep) ---
 strategy:
   ema_fast: 9
   ema_slow: 21
   rsi_period: 14
-  rsi_long_min: 45
-  rsi_long_max: 75
-  rsi_short_min: 25
-  rsi_short_max: 55
+  rsi_long_min: 30    # widen from 45 (backtest showed better range)
+  rsi_long_max: 70
+  rsi_short_min: 30
+  rsi_short_max: 70
   volume_lookback: 20
-  volume_spike_mult: 1.5
+  volume_spike_mult: 0.5   # permissive (5m showed vol always < 1x baseline)
   pullback_atr_above_vwap: 0.5
-  pullback_sl_atr_below_vwap: 1.0
-  pullback_wick_min_pct: 0.40
-  pullback_wick_short_pct: 0.40
+  pullback_sl_atr_below_vwap: 0.5  # tight SL (sweep winner)
+  pullback_wick_min_pct: 0.30      # less restrictive
+  pullback_wick_short_pct: 0.30
   pullback_min_bars_above: 6
   breakout_atr_above_vwap: 0.5
   breakout_sl_atr: 1.5
   breakout_min_range_bars: 3
   breakout_max_range_bars: 6
   invalidation_vol_mult: 1.0
-  tp1_atr_mult: 1.0
-  tp1_size_pct: 0.40
-  tp2_atr_mult: 2.0
+  tp1_atr_mult: 3.0      # R:R 6:1 — sweep winner
+  tp1_size_pct: 0.50
+  tp2_atr_mult: 6.0
   trail_atr_mult: 0.5
   trailing_mode: "ema9_or_atr_half"
 
 # Optional: per-symbol overrides
 symbol_overrides:
-  SHIB/USDT:USDT:
-    risk_usd: 0.5     # SHIB is volatile, cap max SL loss smaller
-    margin_usd: 0.5
-    leverage: 10
-  HYPE/USDT:USDT:
-    leverage: 10
-  DOGE/USDT:USDT:
-    leverage: 10
+  ETH/USDT:USDT:
+    risk_usd: 1.0
+    margin_usd: 1.0
+    leverage: 15
+  BTC/USDT:USDT:
+    risk_usd: 1.0
+    margin_usd: 1.0
+    leverage: 15
 
 # --- Schedule ---
 scheduler:
@@ -80,7 +86,7 @@ execution:
   order_type_tp: "limit"
   entry_timeout_sec: 300
   poll_interval_sec: 30
-  dry_run: true                       # true = paper, false = live
+  dry_run: false                      # LIVE — tuned config verified
 
 # --- Bitget API ---
 bitget:

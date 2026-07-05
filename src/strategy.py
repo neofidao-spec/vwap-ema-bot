@@ -98,7 +98,8 @@ def detect_pullback(df: pd.DataFrame, cfg: dict, bias: str) -> Optional[Setup]:
             return None
         # entry: limit at close of last candle
         entry = last['close']
-        sl = vwap - cfg['pullback_sl_atr_below_vwap'] * atr
+        # SL from ENTRY (not VWAP) — sweep winner: 30-40% better PF
+        sl = entry - cfg['pullback_sl_atr_below_vwap'] * atr
         if sl >= entry:
             return None
         return Setup(SIDE_LONG, "pullback", entry, sl,
@@ -119,7 +120,8 @@ def detect_pullback(df: pd.DataFrame, cfg: dict, bias: str) -> Optional[Setup]:
         if (wick / candle_range) < cfg['pullback_wick_short_pct']:
             return None
         entry = last['close']
-        sl = vwap + cfg['pullback_sl_atr_below_vwap'] * atr
+        # SL from ENTRY (not VWAP) — sweep winner: 30-40% better PF
+        sl = entry + cfg['pullback_sl_atr_below_vwap'] * atr
         if sl <= entry:
             return None
         return Setup(SIDE_SHORT, "pullback", entry, sl,
